@@ -1,12 +1,44 @@
 import React from "react";
 import clsx from "clsx";
+import PaperCard from "./PaperCard";
+import { ProcessedOpenAlexRecord } from "../types";
 
 type ChatMessageProps = {
   text: string;
   sender: "user" | "bot";
+  initialApiUrl: string | null;
+  loadMoreResults: () => void;
+  hasMoreResults: boolean;
 };
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ text, sender }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({
+  text,
+  sender,
+  initialApiUrl,
+  loadMoreResults,
+  hasMoreResults,
+}) => {
+  const isProcessedData = sender === "bot" && text.startsWith("[");
+
+  if (isProcessedData) {
+    const processedData: ProcessedOpenAlexRecord[] = JSON.parse(text);
+
+    return (
+      <div className="flex flex-col items-center w-full pb-12">
+        <div className="flex flex-wrap justify-center">
+          {processedData.map((paper, index) => (
+            <PaperCard key={index} {...paper} />
+          ))}
+        </div>
+        {initialApiUrl && hasMoreResults && (
+          <button onClick={loadMoreResults} className="mt-4">
+            <span className="text-black hover:underline">Load More</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className={clsx(

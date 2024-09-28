@@ -1,32 +1,38 @@
-import React from "react";
+import React, { useState } from "react";
 import { TextField, IconButton } from "@mui/material";
 import SendIcon from "@mui/icons-material/Send";
 import CloseIcon from "@mui/icons-material/Close";
 
 type ChatInputProps = {
-  input: string;
-  setInput: (input: string) => void;
   isStreaming: boolean;
-  handleSubmit: () => void;
+  handleSubmit: (input: string) => void;
   handleAbort: () => void;
 };
 
 const ChatInput: React.FC<ChatInputProps> = ({
-  input,
-  setInput,
   isStreaming,
   handleSubmit,
   handleAbort,
 }) => {
+  const [input, setInput] = useState("");
+
+  const onSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (input.trim()) {
+      handleSubmit(input);
+      setInput("");
+    }
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      handleSubmit();
+      onSubmit(event);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex justify-center px-2">
+    <form onSubmit={onSubmit} className="flex justify-center px-2">
       <div className="flex items-center border border-black py-1 pl-4 pr-2 w-full rounded-3xl">
         <TextField
           multiline
