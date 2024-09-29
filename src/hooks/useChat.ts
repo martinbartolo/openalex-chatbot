@@ -14,6 +14,12 @@ import {
 import { ChatCompletionChunk } from "openai/resources/chat";
 import { v4 as uuidv4 } from "uuid";
 
+/**
+ * `useChat` is a custom React hook that manages chat messages,
+ * interacts with OpenAI and OpenAlex APIs, handles streaming,
+ * and provides functions to submit messages, abort ongoing streams,
+ * and load more results.
+ */
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +27,12 @@ export const useChat = () => {
 
   const abortControllersRef = useRef<Set<AbortController>>(new Set());
 
+  /**
+   * Adds a new message to the chat.
+   * @param message - The text content of the message.
+   * @param sender - Indicates if the message is from the "user" or the "bot".
+   * @param metadata - Optional additional properties for the message.
+   */
   const addMessageToChat = useCallback(
     (
       message: string,
@@ -29,7 +41,7 @@ export const useChat = () => {
     ) => {
       if (message.trim()) {
         const newMessage: Message = {
-          id: uuidv4(),
+          id: uuidv4(), // Unique identifier for the message
           text: message,
           sender,
           ...metadata,
@@ -40,6 +52,11 @@ export const useChat = () => {
     [],
   );
 
+  /**
+   * Handles errors by setting appropriate error messages
+   * and logging them to the console.
+   * @param error - The caught error object.
+   */
   const handleError = useCallback((error: unknown) => {
     if (error instanceof OpenAIError) {
       console.error(error);
@@ -56,6 +73,12 @@ export const useChat = () => {
     }
   }, []);
 
+  /**
+   * Initiates a streaming request to generate summaries based on titles.
+   * @param titles - An array of paper titles to summarize.
+   * @param signal - The AbortSignal to control the request lifecycle.
+   * @returns An async iterable stream of ChatCompletionChunk.
+   */
   const generateSummaries = useCallback(
     async (titles: string[], signal: AbortSignal) => {
       const stream = await openai.chat.completions.create(
@@ -81,6 +104,14 @@ export const useChat = () => {
     [],
   );
 
+  /**
+   * Processes the incoming stream of summaries and updates the chat messages accordingly.
+   * @param stream - The async iterable stream from OpenAI.
+   * @param apiData - The response data from OpenAlex API.
+   * @param updateFunction - A callback to update individual processed records.
+   * @param messageId - The ID of the bot message being updated.
+   * @param abortSignal - The AbortSignal to handle stream termination.
+   */
   const processSummaries = useCallback(
     async (
       stream: AsyncIterable<ChatCompletionChunk>,
@@ -97,17 +128,21 @@ export const useChat = () => {
       let processedCount = 0;
 
       for await (const chunk of stream) {
+        // Exit early if the stream has been aborted
         if (abortSignal.aborted) {
           break;
         }
 
+        // Accumulate the content from each chunk
         const content = chunk.choices[0]?.delta?.content || "";
         currentSummary += content;
 
+        // Check for the delimiter indicating the end of a summary
         if (content.includes("---")) {
           const [summary, ...rest] = currentSummary.split("---");
           currentSummary = rest.join("---");
 
+          // Add the summary to the message
           const paperData = apiData.results[processedCount];
           if (paperData) {
             const processedRecord: ProcessedOpenAlexRecord = {
@@ -119,6 +154,7 @@ export const useChat = () => {
               summary: summary.trim(),
             };
 
+            // Update the message only if not aborted
             if (!abortSignal.aborted) {
               updateFunction(processedRecord, processedCount, messageId);
             }
@@ -127,6 +163,7 @@ export const useChat = () => {
         }
       }
 
+      // Handle any remaining summary after the loop ends
       if (
         !abortSignal.aborted &&
         currentSummary.trim() &&
@@ -150,6 +187,11 @@ export const useChat = () => {
     [],
   );
 
+  /**
+   * Submits a new user message, interacts with OpenAI and OpenAlex APIs,
+   * and handles the streaming of summaries.
+   * @param input - The user's message input.
+   */
   const submitMessage = useCallback(
     async (input: string) => {
       if (!input.trim()) return;
@@ -158,6 +200,7 @@ export const useChat = () => {
       addMessageToChat(input, "user");
 
       try {
+        // Parse the user's message with OpenAI to get the OpenAlex API URL
         const completion = await openai.beta.chat.completions.parse({
           model: MODEL,
           messages: [
@@ -172,6 +215,7 @@ export const useChat = () => {
 
         const parsedResponse = completion.choices[0].message.parsed;
 
+        // Handle cases where the search is invalid or no API URL is returned
         if (!parsedResponse?.api_url) {
           addMessageToChat(
             parsedResponse?.invalidSearchExplanation ??
@@ -182,11 +226,11 @@ export const useChat = () => {
         }
 
         const newBotMessageId = uuidv4();
-        const abortController = new AbortController();
 
-        // Add the new AbortController to the Set
+        const abortController = new AbortController();
         abortControllersRef.current.add(abortController);
 
+        // Initialize the bot message with an empty array
         addMessageToChat(JSON.stringify([]), "bot", {
           apiUrl: parsedResponse.api_url,
           currentPage: 1,
@@ -195,6 +239,7 @@ export const useChat = () => {
           id: newBotMessageId,
         });
 
+        // Fetch data from OpenAlex API
         const response = await fetch(parsedResponse.api_url, {
           signal: abortController.signal,
         });
@@ -205,11 +250,12 @@ export const useChat = () => {
             `OpenAlex API error: ${response.status} ${response.statusText}\n${errorMessage}`,
           );
         }
+
         const apiData = OpenAlexAPIResponse.parse(await response.json());
 
         const titles = apiData.results.map((record) => record.title);
 
-        // Initialize bot message with loading placeholders
+        // Populate the bot message with loading placeholders
         setMessages((prevMessages) =>
           prevMessages.map((msg) =>
             msg.id === newBotMessageId
@@ -231,13 +277,16 @@ export const useChat = () => {
           ),
         );
 
+        // Generate summaries by streaming from OpenAI
         const stream = await generateSummaries(titles, abortController.signal);
 
         setIsLoading(false);
 
+        // Process the incoming summaries and update the chat messages
         await processSummaries(
           stream,
           apiData,
+          // Function to update the message with the processed data
           (processedData, index, messageId) => {
             setMessages((prevMessages) =>
               prevMessages.map((msg) => {
@@ -269,7 +318,7 @@ export const useChat = () => {
           abortController.signal,
         );
 
-        // Remove the controller after processing
+        // Remove the AbortController from the Set after processing completes
         abortControllersRef.current.delete(abortController);
       } catch (error: unknown) {
         handleError(error);
@@ -280,12 +329,17 @@ export const useChat = () => {
     [addMessageToChat, handleError, generateSummaries, processSummaries],
   );
 
+  /**
+   * Loads more results for a specific bot message by fetching the next page from OpenAlex API.
+   * @param messageId - The ID of the bot message to load more results for.
+   */
   const loadMoreResults = useCallback(
     async (messageId: string) => {
       const targetMessage = messages.find(
         (msg) => msg.id === messageId && msg.sender === "bot",
       );
 
+      // Exit if the target message is not found or has no more results
       if (
         !targetMessage ||
         !targetMessage.apiUrl ||
@@ -294,11 +348,11 @@ export const useChat = () => {
         return;
 
       const nextPage = (targetMessage.currentPage || 1) + 1;
-      const abortController = new AbortController();
 
-      // Add the new AbortController to the Set
+      const abortController = new AbortController();
       abortControllersRef.current.add(abortController);
 
+      // Update the message to indicate that more results are being fetched
       setMessages((prevMessages) =>
         prevMessages.map((msg) =>
           msg.id === messageId
@@ -308,16 +362,19 @@ export const useChat = () => {
       );
 
       try {
+        // Fetch the next page from OpenAlex API
         const response = await fetch(
           `${targetMessage.apiUrl}&page=${nextPage}`,
           { signal: abortController.signal },
         );
+
         if (!response.ok) {
           const errorMessage = await response.text();
           throw new Error(
             `OpenAlex API error: ${response.status} ${response.statusText}\n${errorMessage}`,
           );
         }
+
         const apiData = OpenAlexAPIResponse.parse(await response.json());
 
         const titles = apiData.results.map((record) => record.title);
@@ -349,11 +406,14 @@ export const useChat = () => {
           }),
         );
 
+        // Generate summaries for the new set of titles
         const stream = await generateSummaries(titles, abortController.signal);
 
+        // Process the incoming summaries and update the chat messages
         await processSummaries(
           stream,
           apiData,
+          // Function to update the message with the processed data
           (processedData, index, msgId) => {
             setMessages((prevMessages) =>
               prevMessages.map((msg) => {
@@ -389,11 +449,11 @@ export const useChat = () => {
           abortController.signal,
         );
 
-        // Remove the controller after processing
+        // Remove the AbortController from the Set after processing completes
         abortControllersRef.current.delete(abortController);
       } catch (error: unknown) {
         handleError(error);
-        // Set isStreaming to false on error
+        // Ensure that isStreaming is set to false in case of an error
         setMessages((prevMessages) =>
           prevMessages.map((msg) =>
             msg.id === messageId ? { ...msg, isStreaming: false } : msg,
@@ -404,8 +464,12 @@ export const useChat = () => {
     [messages, generateSummaries, processSummaries, handleError],
   );
 
+  /**
+   * Aborts all ongoing streams by invoking abort on each AbortController.
+   * Also updates all messages to set isStreaming to false.
+   */
   const abortMessage = useCallback(() => {
-    // Abort all ongoing controllers
+    // Abort all ongoing AbortControllers
     abortControllersRef.current.forEach((controller) => {
       controller.abort();
     });
@@ -413,7 +477,7 @@ export const useChat = () => {
     // Clear the Set after aborting
     abortControllersRef.current.clear();
 
-    // Update all messages to set isStreaming to false
+    // Update all messages to indicate that streaming has stopped
     setMessages((prevMessages) =>
       prevMessages.map((msg) =>
         msg.isStreaming ? { ...msg, isStreaming: false } : msg,
@@ -421,14 +485,25 @@ export const useChat = () => {
     );
   }, []);
 
+  /**
+   * The hook returns the following:
+   * - messages: The array of chat messages.
+   * - submitMessage: Function to submit a new user message.
+   * - abortMessage: Function to abort all ongoing streams.
+   * - loadMoreResults: Function to load more results for a specific message.
+   * - isStreaming: A boolean indicating if any message is currently streaming.
+   * - isLoading: Boolean indicating that we are waiting for streaming of summaries to begin.
+   * - error: Current error message, if any.
+   * - clearError: Function to clear the error message.
+   */
   return {
     messages,
-    isStreaming: messages.some((msg) => msg.isStreaming),
     submitMessage,
-    abortMessage, // Global abort function
+    abortMessage,
+    loadMoreResults,
+    isStreaming: messages.some((msg) => msg.isStreaming),
+    isLoading,
     error,
     clearError: () => setError(null),
-    isLoading,
-    loadMoreResults,
   };
 };

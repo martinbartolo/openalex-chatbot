@@ -16,7 +16,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to the bottom only when the last message is from the user
+  // Scroll to the bottom only when the user has sent a new message
   useEffect(() => {
     if (messages.length === 0) return;
     const lastMessage = messages[messages.length - 1];
