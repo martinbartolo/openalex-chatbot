@@ -41,7 +41,7 @@ export const useChat = () => {
     ) => {
       if (message.trim()) {
         const newMessage: Message = {
-          id: uuidv4(), // Unique identifier for the message
+          id: uuidv4(),
           text: message,
           sender,
           ...metadata,
@@ -54,7 +54,7 @@ export const useChat = () => {
 
   /**
    * Handles errors by setting appropriate error messages
-   * and logging them to the console.
+   * and removing the loading state from bot messages.
    * @param error - The caught error object.
    */
   const handleError = useCallback((error: unknown) => {
@@ -71,6 +71,30 @@ export const useChat = () => {
       console.error(error);
       setError("An unexpected error occurred.");
     }
+
+    // Remove the loading state from all bot messages
+    setMessages((prevMessages) =>
+      prevMessages.map((msg) => {
+        if (msg.sender === "bot") {
+          try {
+            const currentData: ProcessedOpenAlexRecord[] = JSON.parse(msg.text);
+            const updatedData = currentData.map((item) => ({
+              ...item,
+              loading: false,
+            }));
+            return {
+              ...msg,
+              text: JSON.stringify(updatedData),
+              isStreaming: false,
+            };
+          } catch (parseError) {
+            console.error("Failed to parse message text:", parseError);
+            return msg;
+          }
+        }
+        return msg;
+      }),
+    );
   }, []);
 
   /**
@@ -422,7 +446,7 @@ export const useChat = () => {
                     msg.text,
                   );
                   const targetIndex =
-                    currentData.length - titles.length + index; // Calculate the correct index
+                    currentData.length - titles.length + index;
                   currentData[targetIndex] = {
                     ...currentData[targetIndex],
                     summary: processedData.summary,
@@ -453,7 +477,8 @@ export const useChat = () => {
         abortControllersRef.current.delete(abortController);
       } catch (error: unknown) {
         handleError(error);
-        // Ensure that isStreaming is set to false in case of an error
+      } finally {
+        // Ensure that isStreaming is set to false in all cases
         setMessages((prevMessages) =>
           prevMessages.map((msg) =>
             msg.id === messageId ? { ...msg, isStreaming: false } : msg,
@@ -466,7 +491,7 @@ export const useChat = () => {
 
   /**
    * Aborts all ongoing streams by invoking abort on each AbortController.
-   * Also updates all messages to set isStreaming to false.
+   * Also updates all messages to set isStreaming to false and remove loading state.
    */
   const abortMessage = useCallback(() => {
     // Abort all ongoing AbortControllers
@@ -478,10 +503,31 @@ export const useChat = () => {
     abortControllersRef.current.clear();
 
     // Update all messages to indicate that streaming has stopped
+    // and remove loading state from cards
     setMessages((prevMessages) =>
-      prevMessages.map((msg) =>
-        msg.isStreaming ? { ...msg, isStreaming: false } : msg,
-      ),
+      prevMessages.map((msg) => {
+        if (msg.isStreaming && msg.sender === "bot") {
+          try {
+            const currentData: ProcessedOpenAlexRecord[] = JSON.parse(msg.text);
+            const updatedData = currentData.map((item) => ({
+              ...item,
+              loading: false,
+            }));
+            return {
+              ...msg,
+              isStreaming: false,
+              text: JSON.stringify(updatedData),
+            };
+          } catch (parseError) {
+            console.error(
+              "Failed to parse message text during abort:",
+              parseError,
+            );
+            return msg;
+          }
+        }
+        return msg;
+      }),
     );
   }, []);
 
