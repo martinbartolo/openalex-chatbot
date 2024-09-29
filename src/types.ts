@@ -8,6 +8,7 @@ export type Message = {
   currentPage?: number;
   hasMoreResults?: boolean;
   isStreaming?: boolean;
+  introMessage?: string;
 };
 
 const OpenAlexFilter = z.object({
@@ -50,4 +51,11 @@ export type ProcessedOpenAlexRecord = {
   isOpenAccess: boolean;
   summary: string;
   loading?: boolean;
+};
+
+export type SearchMetadata = {
+  defaultSearch: string | null;
+  publicationYear: string[] | null;
+  citedByCount: number | null;
+  isOpenAccess: boolean | null;
 };

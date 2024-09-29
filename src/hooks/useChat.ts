@@ -10,6 +10,7 @@ import {
   OpenAlexAPIResponse,
   OpenAlexResponse,
   ProcessedOpenAlexRecord,
+  SearchMetadata,
 } from "../types";
 import { ChatCompletionChunk } from "openai/resources/chat";
 import { v4 as uuidv4 } from "uuid";
@@ -100,11 +101,16 @@ export const useChat = () => {
   /**
    * Initiates a streaming request to generate summaries based on titles.
    * @param titles - An array of paper titles to summarize.
+   * @param searchMetadata - The search metadata for the query.
    * @param signal - The AbortSignal to control the request lifecycle.
    * @returns An async iterable stream of ChatCompletionChunk.
    */
   const generateSummaries = useCallback(
-    async (titles: string[], signal: AbortSignal) => {
+    async (
+      titles: string[],
+      searchMetadata: SearchMetadata | null,
+      signal: AbortSignal,
+    ) => {
       const stream = await openai.chat.completions.create(
         {
           model: MODEL,
@@ -115,7 +121,9 @@ export const useChat = () => {
             },
             {
               role: "user",
-              content: titles.join("\n"),
+              content: searchMetadata
+                ? `Search Metadata: ${JSON.stringify(searchMetadata)}\n\n${titles.join("\n")}`
+                : titles.join("\n"),
             },
           ],
           stream: true,
@@ -130,59 +138,84 @@ export const useChat = () => {
 
   /**
    * Processes the incoming stream of summaries and updates the chat messages accordingly.
-   * @param stream - The async iterable stream from OpenAI.
-   * @param apiData - The response data from OpenAlex API.
-   * @param updateFunction - A callback to update individual processed records.
-   * @param messageId - The ID of the bot message being updated.
-   * @param abortSignal - The AbortSignal to handle stream termination.
    */
   const processSummaries = useCallback(
-    async (
-      stream: AsyncIterable<ChatCompletionChunk>,
-      apiData: z.infer<typeof OpenAlexAPIResponse>,
+    async ({
+      stream,
+      apiData,
+      updateFunction,
+      messageId,
+      abortSignal,
+      skipIntro = false,
+    }: {
+      stream: AsyncIterable<ChatCompletionChunk>;
+      apiData: z.infer<typeof OpenAlexAPIResponse>;
       updateFunction: (
         processedData: ProcessedOpenAlexRecord,
         index: number,
         messageId: string,
-      ) => void,
-      messageId: string,
-      abortSignal: AbortSignal,
-    ) => {
+      ) => void;
+      messageId: string;
+      abortSignal: AbortSignal;
+      skipIntro?: boolean;
+    }) => {
+      let currentContent = "";
+      let isIntroProcessed = skipIntro;
       let currentSummary = "";
       let processedCount = 0;
 
+      const updateIntroMessage = (intro: string) => {
+        setMessages((prevMessages) =>
+          prevMessages.map((msg) =>
+            msg.id === messageId ? { ...msg, introMessage: intro } : msg,
+          ),
+        );
+      };
+
       for await (const chunk of stream) {
-        // Exit early if the stream has been aborted
         if (abortSignal.aborted) {
           break;
         }
 
-        // Accumulate the content from each chunk
         const content = chunk.choices[0]?.delta?.content || "";
-        currentSummary += content;
+        currentContent += content;
 
-        // Check for the delimiter indicating the end of a summary
-        if (content.includes("---")) {
-          const [summary, ...rest] = currentSummary.split("---");
-          currentSummary = rest.join("---");
-
-          // Add the summary to the message
-          const paperData = apiData.results[processedCount];
-          if (paperData) {
-            const processedRecord: ProcessedOpenAlexRecord = {
-              title: paperData.title,
-              link: paperData.doi,
-              date: paperData.publication_date,
-              citations: paperData.cited_by_count,
-              isOpenAccess: paperData.open_access.is_oa,
-              summary: summary.trim(),
-            };
-
-            // Update the message only if not aborted
-            if (!abortSignal.aborted) {
-              updateFunction(processedRecord, processedCount, messageId);
+        if (!isIntroProcessed) {
+          const introEndIndex = currentContent.indexOf("\n");
+          if (introEndIndex !== -1) {
+            const intro = currentContent.slice(0, introEndIndex).trim();
+            if (intro) {
+              updateIntroMessage(intro);
             }
-            processedCount++;
+            currentContent = currentContent.slice(introEndIndex + 1);
+            isIntroProcessed = true;
+          } else {
+            // Stream the introduction as it comes in
+            updateIntroMessage(currentContent);
+          }
+        } else {
+          currentSummary += content;
+
+          if (content.includes("---")) {
+            const [summary, ...rest] = currentSummary.split("---");
+            currentSummary = rest.join("---");
+
+            const paperData = apiData.results[processedCount];
+            if (paperData) {
+              const processedRecord: ProcessedOpenAlexRecord = {
+                title: paperData.title,
+                link: paperData.doi,
+                date: paperData.publication_date,
+                citations: paperData.cited_by_count,
+                isOpenAccess: paperData.open_access.is_oa,
+                summary: summary.trim().replace(/^:\s*/, ""),
+              };
+
+              if (!abortSignal.aborted) {
+                updateFunction(processedRecord, processedCount, messageId);
+              }
+              processedCount++;
+            }
           }
         }
       }
@@ -201,14 +234,14 @@ export const useChat = () => {
             date: paperData.publication_date,
             citations: paperData.cited_by_count,
             isOpenAccess: paperData.open_access.is_oa,
-            summary: currentSummary.trim(),
+            summary: currentSummary.trim().replace(/^:\s*/, ""),
           };
 
           updateFunction(processedRecord, processedCount, messageId);
         }
       }
     },
-    [],
+    [setMessages],
   );
 
   /**
@@ -301,17 +334,25 @@ export const useChat = () => {
           ),
         );
 
-        // Generate summaries by streaming from OpenAI
-        const stream = await generateSummaries(titles, abortController.signal);
+        const searchMetadata: SearchMetadata = {
+          defaultSearch: parsedResponse.filters?.defaultSearch,
+          publicationYear: parsedResponse.filters?.publicationYear,
+          citedByCount: parsedResponse.filters?.citedByCount,
+          isOpenAccess: parsedResponse.filters?.isOpenAccess,
+        };
+        const stream = await generateSummaries(
+          titles,
+          searchMetadata,
+          abortController.signal,
+        );
 
         setIsLoading(false);
 
         // Process the incoming summaries and update the chat messages
-        await processSummaries(
+        await processSummaries({
           stream,
           apiData,
-          // Function to update the message with the processed data
-          (processedData, index, messageId) => {
+          updateFunction: (processedData, index, messageId) => {
             setMessages((prevMessages) =>
               prevMessages.map((msg) => {
                 if (msg.id === messageId && msg.sender === "bot") {
@@ -338,9 +379,9 @@ export const useChat = () => {
               }),
             );
           },
-          newBotMessageId,
-          abortController.signal,
-        );
+          messageId: newBotMessageId,
+          abortSignal: abortController.signal,
+        });
 
         // Remove the AbortController from the Set after processing completes
         abortControllersRef.current.delete(abortController);
@@ -431,14 +472,17 @@ export const useChat = () => {
         );
 
         // Generate summaries for the new set of titles
-        const stream = await generateSummaries(titles, abortController.signal);
+        const stream = await generateSummaries(
+          titles,
+          null, // Pass null for searchMetadata to skip generating intro paragraph
+          abortController.signal,
+        );
 
         // Process the incoming summaries and update the chat messages
-        await processSummaries(
+        await processSummaries({
           stream,
           apiData,
-          // Function to update the message with the processed data
-          (processedData, index, msgId) => {
+          updateFunction: (processedData, index, msgId) => {
             setMessages((prevMessages) =>
               prevMessages.map((msg) => {
                 if (msg.id === msgId && msg.sender === "bot") {
@@ -470,8 +514,9 @@ export const useChat = () => {
             );
           },
           messageId,
-          abortController.signal,
-        );
+          abortSignal: abortController.signal,
+          skipIntro: true,
+        });
 
         // Remove the AbortController from the Set after processing completes
         abortControllersRef.current.delete(abortController);

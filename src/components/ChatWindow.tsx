@@ -38,6 +38,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             loadMoreResults={() => loadMoreResults(msg.id)}
             hasMoreResults={msg.hasMoreResults || false}
             isStreaming={msg.isStreaming || false}
+            introMessage={msg.introMessage}
           />
         ))}
 

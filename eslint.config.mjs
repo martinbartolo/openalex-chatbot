@@ -14,9 +14,6 @@ export default [
       react: {
         version: "detect",
       },
-      "import/resolver": {
-        typescript: {},
-      },
     },
   },
   pluginJs.configs.recommended,
