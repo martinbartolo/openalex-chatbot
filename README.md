@@ -83,3 +83,14 @@ To learn more about the technologies used in this project:
 - [OpenAlex API Documentation](https://docs.openalex.org/)
 - [OpenAI API Documentation](https://platform.openai.com/docs/api-reference)
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)
+
+## AI Assistance Disclosure
+
+During the development of this project, I utilized AI assistance, specifically the Cursor IDE, for the following purposes:
+
+1. Code review and suggestions for improvement
+2. Debugging assistance
+3. Clarification on best practices and implementation details
+4. Generation of code comments and documentation
+
+It's important to note that while AI was used as a supportive tool, all architectural decisions, code structure, and core implementation were done by me. The AI was primarily used to enhance code quality, provide alternative perspectives, and assist with documentation. All AI suggestions were critically evaluated and integrated only when they aligned with the project's goals and my coding standards.
