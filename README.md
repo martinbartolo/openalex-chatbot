@@ -1,46 +1,85 @@
-# Getting Started with Create React App
+# OpenAlex Chatbot
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project is a React-based chatbot that interacts with the OpenAlex API to provide academic paper information and summaries.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- Interactive chat interface
+- Integration with OpenAlex API for academic paper searches
+- Paper summaries generated using OpenAI's GPT model
+- Responsive design using Tailwind CSS
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+- Docker
+- OpenAI API key
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## Running with Docker
 
-### `npm test`
+1. Clone the repository:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+   ```
+   git clone https://github.com/martinbartolo/openalex-chatbot.git
+   cd openalex-chatbot
+   ```
 
-### `npm run build`
+2. Create a `.env` file in the root directory with your OpenAI API key:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+   ```
+   REACT_APP_OPENAI_API_KEY=your_openai_api_key_here
+   ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+3. Build the Docker image:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+   ```
+   docker build -t openalex-chatbot .
+   ```
 
-### `npm run eject`
+4. Run the Docker container:
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+   ```
+   docker run -p 3000:3000 openalex-chatbot
+   ```
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+5. Open your browser and navigate to `http://localhost:3000` to use the application.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## Development
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+For local development without Docker, you can use the following commands:
+
+```
+npm install
+npm start
+```
+
+## Project Structure
+
+- `src/components`: React components for the UI
+- `src/hooks`: Custom React hooks, including the main `useChat` hook
+- `src/utils`: Utility functions and constants
+- `src/types`: TypeScript type definitions
+
+## Key Design Decisions
+
+1. **React with TypeScript**: Ensures type safety and improves developer experience.
+2. **Custom useChat Hook**: Centralizes chat logic and API interactions for better state management.
+3. **OpenAI Integration**: Utilizes GPT model for generating paper summaries.
+4. **Tailwind CSS**: Provides a utility-first CSS framework for responsive design.
+5. **Zod**: Used for runtime type checking and validation of API responses.
+6. **Streaming Responses**: Implements streaming for real-time updates of paper summaries.
+
+## Notes
+
+- The project uses environment variables for API keys. Ensure these are set correctly in production environments.
+- The OpenAlex API is used for academic paper searches. Be aware of any usage limits or terms of service.
+- The OpenAI API is used for generating summaries. Costs may be incurred based on usage.
 
 ## Learn More
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+To learn more about the technologies used in this project:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+- [React Documentation](https://reactjs.org/)
+- [TypeScript Documentation](https://www.typescriptlang.org/)
+- [OpenAlex API Documentation](https://docs.openalex.org/)
+- [OpenAI API Documentation](https://platform.openai.com/docs/api-reference)
+- [Tailwind CSS Documentation](https://tailwindcss.com/docs)
