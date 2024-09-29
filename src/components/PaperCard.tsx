@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, CardContent } from "@mui/material";
+import { Card, CardContent, Skeleton } from "@mui/material";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
@@ -11,6 +11,8 @@ type PaperCardProps = {
   date: string;
   citations: number;
   isOpenAccess: boolean;
+  summary: string;
+  loading?: boolean;
 };
 
 const PaperCard: React.FC<PaperCardProps> = ({
@@ -19,6 +21,8 @@ const PaperCard: React.FC<PaperCardProps> = ({
   date,
   citations,
   isOpenAccess,
+  summary,
+  loading = false,
 }) => {
   return (
     <Card
@@ -47,7 +51,7 @@ const PaperCard: React.FC<PaperCardProps> = ({
           <span className="text-sm text-gray-600">{citations} Citations</span>
         </div>
 
-        <div className="flex items-center">
+        <div className="flex items-center mb-2">
           {isOpenAccess ? (
             <LockOpenIcon className="mr-2 text-gray-500 text-sm" />
           ) : (
@@ -56,6 +60,15 @@ const PaperCard: React.FC<PaperCardProps> = ({
           <span className="text-sm text-gray-600">
             {isOpenAccess ? "Open Access" : "Closed Access"}
           </span>
+        </div>
+
+        <div className="mt-3">
+          <h4 className="text-sm font-semibold mb-1">Summary:</h4>
+          {loading ? (
+            <Skeleton variant="text" width="100%" height={60} />
+          ) : (
+            <p className="text-sm text-gray-600">{summary}</p>
+          )}
         </div>
       </CardContent>
     </Card>

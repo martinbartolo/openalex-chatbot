@@ -11,6 +11,9 @@ export default [
       globals: globals.browser,
     },
     settings: {
+      react: {
+        version: "detect",
+      },
       "import/resolver": {
         typescript: {},
       },

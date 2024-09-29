@@ -1,8 +1,13 @@
 import { z } from "zod";
 
 export type Message = {
+  id: string;
   text: string;
   sender: "user" | "bot";
+  apiUrl?: string | null;
+  currentPage?: number;
+  hasMoreResults?: boolean;
+  isStreaming?: boolean;
 };
 
 const OpenAlexFilter = z.object({
@@ -43,4 +48,6 @@ export type ProcessedOpenAlexRecord = {
   date: string;
   citations: number;
   isOpenAccess: boolean;
+  summary: string;
+  loading?: boolean;
 };

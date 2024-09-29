@@ -1,61 +1,45 @@
 import React, { useEffect, useRef } from "react";
 import ChatMessage from "./ChatMessage";
 import LoadingIndicator from "./LoadingIndicator";
+import { Message } from "../types";
 
 type ChatWindowProps = {
-  messages: { text: string; sender: "user" | "bot" }[];
-  isStreaming: boolean;
-  currentResponse: string;
+  messages: Message[];
   isLoading: boolean;
-  initialApiUrl: string;
-  loadMoreResults: () => void;
-  hasMoreResults: boolean;
+  loadMoreResults: (messageId: string) => void;
 };
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
   messages,
-  isStreaming,
-  currentResponse,
   isLoading,
   loadMoreResults,
-  initialApiUrl,
-  hasMoreResults,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to the bottom of the chat window smoothly when messages are updated
+  // Scroll to the bottom only when the last message is from the user
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0) return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.sender === "user") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
-
-  // Make sure we maintain the scroll to the bottom as a new response is streamed
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView();
-  }, [currentResponse]);
 
   return (
     <div className="flex-grow overflow-auto p-4">
       <div className="space-y-8 flex flex-col">
-        {messages.map((msg, index) => (
+        {messages.map((msg) => (
           <ChatMessage
-            key={index}
+            key={msg.id}
+            id={msg.id}
             text={msg.text}
             sender={msg.sender}
-            initialApiUrl={initialApiUrl}
-            loadMoreResults={loadMoreResults}
-            hasMoreResults={hasMoreResults}
+            initialApiUrl={msg.apiUrl ?? null}
+            loadMoreResults={() => loadMoreResults(msg.id)}
+            hasMoreResults={msg.hasMoreResults || false}
+            isStreaming={msg.isStreaming || false}
           />
         ))}
-
-        {isStreaming && currentResponse && (
-          <ChatMessage
-            text={currentResponse}
-            sender="bot"
-            initialApiUrl={initialApiUrl}
-            loadMoreResults={loadMoreResults}
-            hasMoreResults={hasMoreResults}
-          />
-        )}
 
         {isLoading && <LoadingIndicator />}
       </div>

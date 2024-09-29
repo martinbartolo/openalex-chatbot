@@ -8,15 +8,12 @@ const App: React.FC = () => {
   const {
     messages,
     isStreaming,
-    currentResponse,
     submitMessage,
     abortMessage,
     error,
     clearError,
     isLoading,
     loadMoreResults,
-    initialApiUrl,
-    hasMoreResults,
   } = useChat();
 
   const handleSubmit = async (input: string) => {
@@ -35,12 +32,8 @@ const App: React.FC = () => {
     <div className="flex flex-col min-h-screen max-w-screen-md mx-auto">
       <ChatWindow
         messages={messages}
-        isStreaming={isStreaming}
-        currentResponse={currentResponse}
         isLoading={isLoading}
         loadMoreResults={loadMoreResults}
-        initialApiUrl={initialApiUrl ?? ""}
-        hasMoreResults={hasMoreResults}
       />
 
       <div className="sticky bottom-0 bg-white pb-8">
