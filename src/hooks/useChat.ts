@@ -18,7 +18,8 @@ export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const abortControllersRef = useRef<Set<AbortController>>(new Set());
 
   const addMessageToChat = useCallback(
     (
@@ -40,9 +41,7 @@ export const useChat = () => {
   );
 
   const handleError = useCallback((error: unknown) => {
-    if (abortControllerRef.current?.signal.aborted) {
-      console.log("Stream aborted by user.");
-    } else if (error instanceof OpenAIError) {
+    if (error instanceof OpenAIError) {
       console.error(error);
       setError("API error. Please try again.");
     } else if (error instanceof z.ZodError) {
@@ -57,28 +56,30 @@ export const useChat = () => {
     }
   }, []);
 
-  const generateSummaries = useCallback(async (titles: string[]) => {
-    abortControllerRef.current = new AbortController();
-    const stream = await openai.chat.completions.create(
-      {
-        model: MODEL,
-        messages: [
-          {
-            role: "system",
-            content: SUMMARY_ROLE,
-          },
-          {
-            role: "user",
-            content: titles.join("\n"),
-          },
-        ],
-        stream: true,
-      },
-      { signal: abortControllerRef.current.signal },
-    );
+  const generateSummaries = useCallback(
+    async (titles: string[], signal: AbortSignal) => {
+      const stream = await openai.chat.completions.create(
+        {
+          model: MODEL,
+          messages: [
+            {
+              role: "system",
+              content: SUMMARY_ROLE,
+            },
+            {
+              role: "user",
+              content: titles.join("\n"),
+            },
+          ],
+          stream: true,
+        },
+        { signal },
+      );
 
-    return stream;
-  }, []);
+      return stream;
+    },
+    [],
+  );
 
   const processSummaries = useCallback(
     async (
@@ -90,38 +91,23 @@ export const useChat = () => {
         messageId: string,
       ) => void,
       messageId: string,
+      abortSignal: AbortSignal,
     ) => {
       let currentSummary = "";
       let processedCount = 0;
 
-      try {
-        for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content || "";
-          currentSummary += content;
-
-          if (content.includes("---")) {
-            const [summary, ...rest] = currentSummary.split("---");
-            currentSummary = rest.join("---");
-
-            const paperData = apiData.results[processedCount];
-            if (paperData) {
-              const processedRecord: ProcessedOpenAlexRecord = {
-                title: paperData.title,
-                link: paperData.doi,
-                date: paperData.publication_date,
-                citations: paperData.cited_by_count,
-                isOpenAccess: paperData.open_access.is_oa,
-                summary: summary.trim(),
-              };
-
-              updateFunction(processedRecord, processedCount, messageId);
-              processedCount++;
-            }
-          }
+      for await (const chunk of stream) {
+        if (abortSignal.aborted) {
+          break;
         }
 
-        // Handle any remaining summary
-        if (currentSummary.trim() && processedCount < apiData.results.length) {
+        const content = chunk.choices[0]?.delta?.content || "";
+        currentSummary += content;
+
+        if (content.includes("---")) {
+          const [summary, ...rest] = currentSummary.split("---");
+          currentSummary = rest.join("---");
+
           const paperData = apiData.results[processedCount];
           if (paperData) {
             const processedRecord: ProcessedOpenAlexRecord = {
@@ -130,17 +116,34 @@ export const useChat = () => {
               date: paperData.publication_date,
               citations: paperData.cited_by_count,
               isOpenAccess: paperData.open_access.is_oa,
-              summary: currentSummary.trim(),
+              summary: summary.trim(),
             };
 
-            updateFunction(processedRecord, processedCount, messageId);
+            if (!abortSignal.aborted) {
+              updateFunction(processedRecord, processedCount, messageId);
+            }
+            processedCount++;
           }
         }
-      } catch (error) {
-        if (abortControllerRef.current?.signal.aborted) {
-          console.log("Stream processing aborted.");
-        } else {
-          throw error;
+      }
+
+      if (
+        !abortSignal.aborted &&
+        currentSummary.trim() &&
+        processedCount < apiData.results.length
+      ) {
+        const paperData = apiData.results[processedCount];
+        if (paperData) {
+          const processedRecord: ProcessedOpenAlexRecord = {
+            title: paperData.title,
+            link: paperData.doi,
+            date: paperData.publication_date,
+            citations: paperData.cited_by_count,
+            isOpenAccess: paperData.open_access.is_oa,
+            summary: currentSummary.trim(),
+          };
+
+          updateFunction(processedRecord, processedCount, messageId);
         }
       }
     },
@@ -179,6 +182,10 @@ export const useChat = () => {
         }
 
         const newBotMessageId = uuidv4();
+        const abortController = new AbortController();
+
+        // Add the new AbortController to the Set
+        abortControllersRef.current.add(abortController);
 
         addMessageToChat(JSON.stringify([]), "bot", {
           apiUrl: parsedResponse.api_url,
@@ -188,7 +195,10 @@ export const useChat = () => {
           id: newBotMessageId,
         });
 
-        const response = await fetch(parsedResponse.api_url);
+        const response = await fetch(parsedResponse.api_url, {
+          signal: abortController.signal,
+        });
+
         if (!response.ok) {
           const errorMessage = await response.text();
           throw new Error(
@@ -221,7 +231,7 @@ export const useChat = () => {
           ),
         );
 
-        const stream = await generateSummaries(titles);
+        const stream = await generateSummaries(titles, abortController.signal);
 
         setIsLoading(false);
 
@@ -244,7 +254,6 @@ export const useChat = () => {
                     isOpenAccess: processedData.isOpenAccess,
                     loading: false,
                   };
-                  // If all summaries are processed, set isStreaming to false
                   const allLoaded = currentData.every((item) => !item.loading);
                   return {
                     ...msg,
@@ -257,7 +266,11 @@ export const useChat = () => {
             );
           },
           newBotMessageId,
+          abortController.signal,
         );
+
+        // Remove the controller after processing
+        abortControllersRef.current.delete(abortController);
       } catch (error: unknown) {
         handleError(error);
       } finally {
@@ -281,6 +294,10 @@ export const useChat = () => {
         return;
 
       const nextPage = (targetMessage.currentPage || 1) + 1;
+      const abortController = new AbortController();
+
+      // Add the new AbortController to the Set
+      abortControllersRef.current.add(abortController);
 
       setMessages((prevMessages) =>
         prevMessages.map((msg) =>
@@ -293,6 +310,7 @@ export const useChat = () => {
       try {
         const response = await fetch(
           `${targetMessage.apiUrl}&page=${nextPage}`,
+          { signal: abortController.signal },
         );
         if (!response.ok) {
           const errorMessage = await response.text();
@@ -331,7 +349,7 @@ export const useChat = () => {
           }),
         );
 
-        const stream = await generateSummaries(titles);
+        const stream = await generateSummaries(titles, abortController.signal);
 
         await processSummaries(
           stream,
@@ -354,7 +372,6 @@ export const useChat = () => {
                     isOpenAccess: processedData.isOpenAccess,
                     loading: false,
                   };
-                  // Check if all summaries are loaded to update isStreaming
                   const allLoaded = currentData
                     .slice(currentData.length - titles.length)
                     .every((item) => !item.loading);
@@ -369,7 +386,11 @@ export const useChat = () => {
             );
           },
           messageId,
+          abortController.signal,
         );
+
+        // Remove the controller after processing
+        abortControllersRef.current.delete(abortController);
       } catch (error: unknown) {
         handleError(error);
         // Set isStreaming to false on error
@@ -383,13 +404,28 @@ export const useChat = () => {
     [messages, generateSummaries, processSummaries, handleError],
   );
 
+  const abortMessage = useCallback(() => {
+    // Abort all ongoing controllers
+    abortControllersRef.current.forEach((controller) => {
+      controller.abort();
+    });
+
+    // Clear the Set after aborting
+    abortControllersRef.current.clear();
+
+    // Update all messages to set isStreaming to false
+    setMessages((prevMessages) =>
+      prevMessages.map((msg) =>
+        msg.isStreaming ? { ...msg, isStreaming: false } : msg,
+      ),
+    );
+  }, []);
+
   return {
     messages,
     isStreaming: messages.some((msg) => msg.isStreaming),
     submitMessage,
-    abortMessage: () => {
-      abortControllerRef.current?.abort();
-    },
+    abortMessage, // Global abort function
     error,
     clearError: () => setError(null),
     isLoading,
